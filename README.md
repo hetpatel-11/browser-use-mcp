@@ -8,9 +8,11 @@ MCP server that runs browser automation in the cloud via [Browser Use](https://b
 
 ## What it does
 
-- **One tool:** `run_browser_task` — describe a task in plain language (e.g. “Go to news.ycombinator.com and give me the title and URL of the top post”).
+- **Tools:**
+  - `run_browser_task` — start a browser task and open the live widget.
+  - `get_task_result` — check status/result for a task ID.
 - **Live view:** A widget in the chat shows the actual browser tab (live URL) while the task runs, with “Open in tab” to pop it out.
-- **Models:** Supports `browser-use-2.0`, `gpt-4.1`, `gpt-4.1-mini`, `o4-mini`, `gemini-2.5-flash`, `claude-sonnet-4-6`.
+- **Models:** `browser-use-2.0`, `gpt 5.2`, `gpt 5.3`, `gemini-latest`, `claude-sonnet-4-6`.
 - **Config:** Optional `max_steps` (1–100, default 20) to cap automation steps.
 
 Built with [mcp-use](https://mcp-use.com) and the Browser Use Cloud API.
