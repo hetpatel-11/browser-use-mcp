@@ -37,6 +37,9 @@ export const widgetMetadata: WidgetMetadata = {
   },
 };
 type FavoritesState = { favorites: string[] };
+type FruitDetailsArgs = { fruit: string };
+type FruitDetailsContent = { fruit: string; facts?: string[] };
+type FruitDetailsResponse = { structuredContent?: FruitDetailsContent };
 
 const ProductSearchResult: React.FC = () => {
   const {
@@ -54,11 +57,9 @@ const ProductSearchResult: React.FC = () => {
     callTool: getFruitDetails,
     data: fruitDetails,
     isPending: isLoadingDetails,
-  } = useCallTool("get-fruit-details");
+  } = useCallTool<FruitDetailsArgs, FruitDetailsResponse>("get-fruit-details");
 
-  const selectedFruit = fruitDetails?.structuredContent as
-    | { fruit: string; facts?: string[] }
-    | undefined;
+  const selectedFruit = fruitDetails?.structuredContent;
   const favorites = state?.favorites ?? [];
 
   const toggleFavorite = useCallback(

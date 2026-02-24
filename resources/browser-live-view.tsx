@@ -6,6 +6,7 @@ const propsSchema = z.object({
   taskId: z.string(),
   sessionId: z.string(),
   liveUrl: z.string(),
+  taskStatusApiUrl: z.string(),
   task: z.string(),
   model: z.string(),
 });
@@ -27,9 +28,8 @@ type TaskResult = {
   taskOutput: string | null;
   totalSteps: number;
   done: boolean;
+  error?: string;
 };
-
-const SERVER_BASE = "https://sweet-king-00fsr.run.mcp-use.com";
 
 export default function BrowserLiveView() {
   const { props, isPending } = useWidget<Props>();
@@ -43,7 +43,18 @@ export default function BrowserLiveView() {
 
     const poll = async () => {
       try {
-        const res = await fetch(`${SERVER_BASE}/api/task/${props.taskId}`);
+        const res = await fetch(props.taskStatusApiUrl);
+        if (!res.ok) {
+          setResult({
+            done: true,
+            isSuccess: false,
+            totalSteps: 0,
+            taskOutput: null,
+            error: `Status check failed (${res.status})`,
+          });
+          stopped = true;
+          return;
+        }
         const data: TaskResult = await res.json();
         setResult(data);
         if (data.done) stopped = true;
@@ -53,7 +64,7 @@ export default function BrowserLiveView() {
     poll();
     const interval = setInterval(() => { if (!stopped) poll(); }, 4000);
     return () => { stopped = true; clearInterval(interval); };
-  }, [isPending, props.taskId]);
+  }, [isPending, props.taskStatusApiUrl]);
 
   if (isPending) {
     return (
@@ -67,6 +78,14 @@ export default function BrowserLiveView() {
       </McpUseProvider>
     );
   }
+
+  const finalMessage =
+    result?.taskOutput?.trim() ||
+    (result?.done
+      ? (result.isSuccess
+        ? "Task completed successfully, but Browser Use did not return a final text output."
+        : result.error || "Task failed before a final output was returned.")
+      : null);
 
   return (
     <McpUseProvider autoSize>
@@ -125,12 +144,12 @@ export default function BrowserLiveView() {
         )}
 
         {/* Result — shown once task completes */}
-        {result?.done && result.taskOutput && (
+        {result?.done && finalMessage && (
           <div style={{ ...s.resultBanner, borderLeftColor: result.isSuccess ? "#4ade80" : "#f87171" }}>
             <span style={{ ...s.resultKicker, color: result.isSuccess ? "#4ade80" : "#f87171" }}>
               {result.isSuccess ? "RESULT" : "ERROR"}
             </span>
-            <p style={s.resultText}>{result.taskOutput}</p>
+            <p style={s.resultText}>{finalMessage}</p>
           </div>
         )}
 

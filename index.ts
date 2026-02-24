@@ -14,6 +14,7 @@ const server = new MCPServer({
 
 const BROWSER_USE_API = "https://api.browser-use.com/mcp";
 const API_KEY = process.env.BROWSER_USE_API_KEY || "";
+const MCP_BASE_URL = process.env.MCP_URL || "http://localhost:3000";
 
 async function callBrowserUseAPI(method: string, params: Record<string, unknown>) {
   const res = await fetch(BROWSER_USE_API, {
@@ -74,6 +75,7 @@ server.tool(
           taskId: result.task_id as string,
           sessionId: result.session_id as string,
           liveUrl: result.live_url as string,
+          taskStatusApiUrl: `${MCP_BASE_URL}/api/task/${result.task_id as string}`,
           task,
           model: model ?? "browser-use-2.0",
         },
@@ -121,8 +123,12 @@ server.tool(
 
 server.app.get("/api/task/:taskId", async (c) => {
   const taskId = c.req.param("taskId");
+  if (!API_KEY) {
+    return c.json({ error: "BROWSER_USE_API_KEY not set" }, 500);
+  }
+
   try {
-    const res = await fetch("https://api.browser-use.com/mcp", {
+    const res = await fetch(BROWSER_USE_API, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -135,12 +141,35 @@ server.app.get("/api/task/:taskId", async (c) => {
         params: { name: "monitor_task", arguments: { task_id: taskId } },
       }),
     });
+    if (!res.ok) {
+      return c.json({ error: `Browser Use API request failed: ${res.status}` }, 500);
+    }
+
     const json = await res.json() as { result?: { content?: Array<{ text: string }> } };
-    const data = JSON.parse(json.result?.content?.[0]?.text ?? "{}");
+    const contentText = json.result?.content?.[0]?.text;
+    if (!contentText) {
+      return c.json({ error: "Missing monitor_task response content" }, 500);
+    }
+
+    const data = JSON.parse(contentText) as {
+      is_success?: boolean | null;
+      task_output?: string | null;
+      output?: string | null;
+      result?: string | null;
+      message?: string | null;
+      total_steps?: number;
+    };
+    const finalOutput =
+      data.task_output ??
+      data.output ??
+      data.result ??
+      data.message ??
+      null;
+
     return c.json({
       done: data.is_success !== null && data.is_success !== undefined,
       isSuccess: data.is_success ?? null,
-      taskOutput: data.task_output ?? null,
+      taskOutput: finalOutput,
       totalSteps: data.total_steps ?? 0,
     });
   } catch (err) {
