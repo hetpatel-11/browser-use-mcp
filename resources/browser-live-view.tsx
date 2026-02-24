@@ -1,5 +1,5 @@
-import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
-import { useState } from "react";
+import { McpUseProvider, useWidget, useCallTool, type WidgetMetadata } from "mcp-use/react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 
 const propsSchema = z.object({
@@ -22,9 +22,37 @@ export const widgetMetadata: WidgetMetadata = {
 
 type Props = z.infer<typeof propsSchema>;
 
+type TaskResult = {
+  isSuccess: boolean | null;
+  taskOutput: string | null;
+  totalSteps: number;
+  done: boolean;
+};
+
 export default function BrowserLiveView() {
   const { props, isPending } = useWidget<Props>();
+  const { callToolAsync } = useCallTool("get_task_result");
   const [iframeError, setIframeError] = useState(false);
+  const [result, setResult] = useState<TaskResult | null>(null);
+
+  useEffect(() => {
+    if (isPending) return;
+    let stopped = false;
+
+    const poll = async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const res = await (callToolAsync as any)({ task_id: props.taskId });
+        const data: TaskResult = res.structuredContent ?? JSON.parse(res.content?.[0]?.text ?? "{}");
+        setResult(data);
+        if (data.done) stopped = true;
+      } catch { /* ignore */ }
+    };
+
+    poll();
+    const interval = setInterval(() => { if (!stopped) poll(); }, 4000);
+    return () => { stopped = true; clearInterval(interval); };
+  }, [isPending, props.taskId]);
 
   if (isPending) {
     return (
@@ -47,10 +75,14 @@ export default function BrowserLiveView() {
         <div style={s.topBar}>
           <div style={s.topBarLeft}>
             <div style={{ position: "relative", width: 8, height: 8, flexShrink: 0 }}>
-              <div style={{ ...s.statusDot, backgroundColor: "#f87171" }} />
-              <div style={{ ...s.statusPulse, backgroundColor: "#f87171" }} />
+              <div style={{ ...s.statusDot, backgroundColor: result?.done ? (result.isSuccess ? "#4ade80" : "#f87171") : "#f87171" }} />
+              {!result?.done && <div style={{ ...s.statusPulse, backgroundColor: "#f87171" }} />}
             </div>
-            <span style={s.statusText}>Live</span>
+            <span style={s.statusText}>
+              {result?.done ? (result.isSuccess ? "Complete" : "Failed") : "Live"}
+            </span>
+            {result?.done && <span style={s.divider}>·</span>}
+            {result?.done && <span style={{ ...s.modelChip, color: result.isSuccess ? "#4ade80" : "#f87171", borderColor: result.isSuccess ? "#1a3a1a" : "#3a1a1a", backgroundColor: result.isSuccess ? "#0a1a0a" : "#1a0a0a" }}>{result.totalSteps} steps</span>}
             <span style={s.divider}>·</span>
             <span style={s.modelChip}>{props.model}</span>
           </div>
@@ -88,6 +120,16 @@ export default function BrowserLiveView() {
             <a href={props.liveUrl} target="_blank" rel="noopener noreferrer" style={s.fallbackBtn}>
               Watch Live Session →
             </a>
+          </div>
+        )}
+
+        {/* Result — shown once task completes */}
+        {result?.done && result.taskOutput && (
+          <div style={{ ...s.resultBanner, borderLeftColor: result.isSuccess ? "#4ade80" : "#f87171" }}>
+            <span style={{ ...s.resultKicker, color: result.isSuccess ? "#4ade80" : "#f87171" }}>
+              {result.isSuccess ? "RESULT" : "ERROR"}
+            </span>
+            <p style={s.resultText}>{result.taskOutput}</p>
           </div>
         )}
 
@@ -264,6 +306,26 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: 13,
     fontWeight: 600,
     letterSpacing: "0.01em",
+  },
+  resultBanner: {
+    borderLeft: "2px solid",
+    padding: "12px 14px",
+    backgroundColor: "#080808",
+    borderTop: "1px solid #141414",
+  },
+  resultKicker: {
+    display: "block",
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: "0.12em",
+    marginBottom: 5,
+  },
+  resultText: {
+    fontSize: 13,
+    color: "#d4d4d4",
+    lineHeight: 1.6,
+    margin: 0,
+    whiteSpace: "pre-wrap",
   },
   footer: {
     display: "flex",

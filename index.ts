@@ -1,4 +1,4 @@
-import { MCPServer, text, error, widget } from "mcp-use/server";
+import { MCPServer, text, object, error, widget } from "mcp-use/server";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -54,8 +54,8 @@ server.tool(
     }),
     widget: {
       name: "browser-live-view",
-      invoking: "Running browser task...",
-      invoked: "Task complete",
+      invoking: "Starting cloud browser...",
+      invoked: "Browser session live",
     },
   },
   async ({ task, model, max_steps }) => {
@@ -64,54 +64,58 @@ server.tool(
     }
 
     try {
-      // Start the task
       const result = await callBrowserUseAPI("tools/call", {
         name: "browser_task",
         arguments: { task, model, max_steps },
       });
 
-      const taskId = result.task_id as string;
-      const liveUrl = result.live_url as string;
-      const sessionId = result.session_id as string;
-
-      // Poll until the task completes
-      let finalOutput: string | null = null;
-      let isSuccess: boolean | null = null;
-      let totalSteps = 0;
-
-      while (isSuccess === null) {
-        await new Promise(resolve => setTimeout(resolve, 4000));
-        const status = await callBrowserUseAPI("tools/call", {
-          name: "monitor_task",
-          arguments: { task_id: taskId },
-        });
-        isSuccess = status.is_success as boolean | null;
-        totalSteps = (status.total_steps as number) ?? 0;
-        if (isSuccess !== null) {
-          finalOutput = status.task_output as string | null;
-        }
-      }
-
-      const resultSummary = finalOutput ?? (isSuccess ? "Task completed successfully." : "Task failed with no output.");
-
       return widget({
         props: {
-          taskId,
-          sessionId,
-          liveUrl,
+          taskId: result.task_id as string,
+          sessionId: result.session_id as string,
+          liveUrl: result.live_url as string,
           task,
           model: model ?? "browser-use-2.0",
         },
         output: text(
-          `Task ${isSuccess ? "completed ✓" : "failed ✗"} in ${totalSteps} steps.\n\nResult:\n${resultSummary}`
+          `Browser task started — watching live in the widget. Task ID: ${result.task_id}`
         ),
       });
     } catch (err) {
-      return error(`Failed to run browser task: ${err instanceof Error ? err.message : String(err)}`);
+      return error(`Failed to start browser task: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 );
 
+
+// ── Tool: get_task_result ────────────────────────────────────────────────────
+
+server.tool(
+  {
+    name: "get_task_result",
+    description: "Check the status of a running browser task. Returns result when complete, or null if still running.",
+    schema: z.object({
+      task_id: z.string().describe("Task ID from run_browser_task"),
+    }),
+  },
+  async ({ task_id }) => {
+    if (!API_KEY) return error("BROWSER_USE_API_KEY not set");
+    try {
+      const status = await callBrowserUseAPI("tools/call", {
+        name: "monitor_task",
+        arguments: { task_id },
+      });
+      return object({
+        isSuccess: status.is_success as boolean | null,
+        taskOutput: status.task_output as string | null,
+        totalSteps: (status.total_steps as number) ?? 0,
+        done: status.is_success !== null,
+      });
+    } catch (err) {
+      return error(`Failed to get task result: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+);
 
 server.listen().then(() => {
   console.log("Browser Use Live MCP server running");
