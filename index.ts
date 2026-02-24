@@ -1,108 +1,93 @@
-import { MCPServer, object, text, widget } from "mcp-use/server";
+import { MCPServer, text, error, widget } from "mcp-use/server";
 import { z } from "zod";
 
 const server = new MCPServer({
-  name: "project",
-  title: "project", // display name
+  name: "browser-use-live",
+  title: "Browser Use Live",
   version: "1.0.0",
-  description: "MCP server with MCP Apps integration",
-  baseUrl: process.env.MCP_URL || "http://localhost:3000", // Full base URL (e.g., https://myserver.com)
+  description: "Run browser tasks via Browser Use Cloud and watch them live in ChatGPT",
+  baseUrl: process.env.MCP_URL || "http://localhost:3000",
   favicon: "favicon.ico",
-  websiteUrl: "https://mcp-use.com", // Can be customized later
-  icons: [
-    {
-      src: "icon.svg",
-      mimeType: "image/svg+xml",
-      sizes: ["512x512"],
-    },
-  ],
+  websiteUrl: "https://browser-use.com",
+  icons: [{ src: "icon.svg", mimeType: "image/svg+xml", sizes: ["512x512"] }],
 });
 
-/**
- * TOOL THAT RETURNS A WIDGET
- * The `widget` config tells mcp-use which widget component to render.
- * The `widget()` helper in the handler passes props to that component.
- * Docs: https://mcp-use.com/docs/typescript/server/mcp-apps
- */
+const BROWSER_USE_API = "https://api.browser-use.com/mcp";
+const API_KEY = process.env.BROWSER_USE_API_KEY || "";
 
-// Fruits data — color values are Tailwind bg-[] classes used by the carousel UI
-const fruits = [
-  { fruit: "mango", color: "bg-[#FBF1E1] dark:bg-[#FBF1E1]/10" },
-  { fruit: "pineapple", color: "bg-[#f8f0d9] dark:bg-[#f8f0d9]/10" },
-  { fruit: "cherries", color: "bg-[#E2EDDC] dark:bg-[#E2EDDC]/10" },
-  { fruit: "coconut", color: "bg-[#fbedd3] dark:bg-[#fbedd3]/10" },
-  { fruit: "apricot", color: "bg-[#fee6ca] dark:bg-[#fee6ca]/10" },
-  { fruit: "blueberry", color: "bg-[#e0e6e6] dark:bg-[#e0e6e6]/10" },
-  { fruit: "grapes", color: "bg-[#f4ebe2] dark:bg-[#f4ebe2]/10" },
-  { fruit: "watermelon", color: "bg-[#e6eddb] dark:bg-[#e6eddb]/10" },
-  { fruit: "orange", color: "bg-[#fdebdf] dark:bg-[#fdebdf]/10" },
-  { fruit: "avocado", color: "bg-[#ecefda] dark:bg-[#ecefda]/10" },
-  { fruit: "apple", color: "bg-[#F9E7E4] dark:bg-[#F9E7E4]/10" },
-  { fruit: "pear", color: "bg-[#f1f1cf] dark:bg-[#f1f1cf]/10" },
-  { fruit: "plum", color: "bg-[#ece5ec] dark:bg-[#ece5ec]/10" },
-  { fruit: "banana", color: "bg-[#fdf0dd] dark:bg-[#fdf0dd]/10" },
-  { fruit: "strawberry", color: "bg-[#f7e6df] dark:bg-[#f7e6df]/10" },
-  { fruit: "lemon", color: "bg-[#feeecd] dark:bg-[#feeecd]/10" },
-];
+async function callBrowserUseAPI(method: string, params: Record<string, unknown>) {
+  const res = await fetch(BROWSER_USE_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Browser-Use-API-Key": API_KEY,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method,
+      id: Date.now(),
+      params,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`API request failed: ${res.status}`);
+  const json = await res.json() as { result?: { content?: Array<{ text: string }> }; error?: { message: string } };
+  if (json.error) throw new Error(json.error.message);
+  const text = json.result?.content?.[0]?.text;
+  if (!text) throw new Error("Empty response from API");
+  return JSON.parse(text);
+}
+
+// ── Tool: run_browser_task ───────────────────────────────────────────────────
 
 server.tool(
   {
-    name: "search-tools",
-    description: "Search for fruits and display the results in a visual widget",
+    name: "run_browser_task",
+    description: "Run a browser automation task in the cloud and watch it live. Opens a live browser session you can watch in real-time.",
     schema: z.object({
-      query: z.string().optional().describe("Search query to filter fruits"),
+      task: z.string().describe("What you want the browser to do, e.g. 'Go to google.com and search for AI news'"),
+      model: z.enum([
+        "browser-use-2.0", "gpt-4.1", "gpt-4.1-mini", "o4-mini",
+        "gemini-2.5-flash", "claude-sonnet-4-6",
+      ]).optional().default("browser-use-2.0").describe("LLM model to use"),
+      max_steps: z.number().int().min(1).max(100).optional().default(20).describe("Max browser steps"),
     }),
     widget: {
-      name: "product-search-result",
-      invoking: "Searching...",
-      invoked: "Results loaded",
+      name: "browser-live-view",
+      invoking: "Starting cloud browser...",
+      invoked: "Browser session ready",
     },
   },
-  async ({ query }) => {
-    const results = fruits.filter(
-      (f) => !query || f.fruit.toLowerCase().includes(query.toLowerCase())
-    );
+  async ({ task, model, max_steps }) => {
+    if (!API_KEY) {
+      return error("BROWSER_USE_API_KEY environment variable is not set");
+    }
 
-    // let's emulate a delay to show the loading state
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const result = await callBrowserUseAPI("tools/call", {
+        name: "browser_task",
+        arguments: { task, model, max_steps },
+      });
 
-    return widget({
-      props: { query: query ?? "", results },
-      output: text(
-        `Found ${results.length} fruits matching "${query ?? "all"}"`
-      ),
-    });
+      return widget({
+        props: {
+          taskId: result.task_id as string,
+          sessionId: result.session_id as string,
+          liveUrl: result.live_url as string,
+          task,
+          model: model ?? "browser-use-2.0",
+        },
+        output: text(
+          `Browser task started!\nTask ID: ${result.task_id}\nLive view: ${result.live_url}`
+        ),
+      });
+    } catch (err) {
+      return error(`Failed to start browser task: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 );
 
-server.tool(
-  {
-    name: "get-fruit-details",
-    description: "Get detailed information about a specific fruit",
-    schema: z.object({
-      fruit: z.string().describe("The fruit name"),
-    }),
-    outputSchema: z.object({
-      fruit: z.string(),
-      color: z.string(),
-      facts: z.array(z.string()),
-    }),
-  },
-  async ({ fruit }) => {
-    const found = fruits.find(
-      (f) => f.fruit?.toLowerCase() === fruit?.toLowerCase()
-    );
-    return object({
-      fruit: found?.fruit ?? fruit,
-      color: found?.color ?? "unknown",
-      facts: [
-        `${fruit} is a delicious fruit`,
-        `Color: ${found?.color ?? "unknown"}`,
-      ],
-    });
-  }
-);
 
 server.listen().then(() => {
-  console.log(`Server running`);
+  console.log("Browser Use Live MCP server running");
 });
