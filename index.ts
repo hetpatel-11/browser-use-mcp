@@ -54,8 +54,8 @@ server.tool(
     }),
     widget: {
       name: "browser-live-view",
-      invoking: "Starting cloud browser...",
-      invoked: "Browser session ready",
+      invoking: "Running browser task...",
+      invoked: "Task complete",
     },
   },
   async ({ task, model, max_steps }) => {
@@ -64,25 +64,50 @@ server.tool(
     }
 
     try {
+      // Start the task
       const result = await callBrowserUseAPI("tools/call", {
         name: "browser_task",
         arguments: { task, model, max_steps },
       });
 
+      const taskId = result.task_id as string;
+      const liveUrl = result.live_url as string;
+      const sessionId = result.session_id as string;
+
+      // Poll until the task completes
+      let finalOutput: string | null = null;
+      let isSuccess: boolean | null = null;
+      let totalSteps = 0;
+
+      while (isSuccess === null) {
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        const status = await callBrowserUseAPI("tools/call", {
+          name: "monitor_task",
+          arguments: { task_id: taskId },
+        });
+        isSuccess = status.is_success as boolean | null;
+        totalSteps = (status.total_steps as number) ?? 0;
+        if (isSuccess !== null) {
+          finalOutput = status.task_output as string | null;
+        }
+      }
+
+      const resultSummary = finalOutput ?? (isSuccess ? "Task completed successfully." : "Task failed with no output.");
+
       return widget({
         props: {
-          taskId: result.task_id as string,
-          sessionId: result.session_id as string,
-          liveUrl: result.live_url as string,
+          taskId,
+          sessionId,
+          liveUrl,
           task,
           model: model ?? "browser-use-2.0",
         },
         output: text(
-          `Browser task started. You can watch it live in the widget above.\n\nTask: "${task}"\nModel: ${model ?? "browser-use-2.0"}\nTask ID: ${result.task_id}\nLive URL: ${result.live_url}`
+          `Task ${isSuccess ? "completed ✓" : "failed ✗"} in ${totalSteps} steps.\n\nResult:\n${resultSummary}`
         ),
       });
     } catch (err) {
-      return error(`Failed to start browser task: ${err instanceof Error ? err.message : String(err)}`);
+      return error(`Failed to run browser task: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 );
