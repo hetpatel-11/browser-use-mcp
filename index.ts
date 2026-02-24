@@ -78,7 +78,7 @@ server.tool(
           model: model ?? "browser-use-2.0",
         },
         output: text(
-          `Browser task started!\nTask ID: ${result.task_id}\nLive view: ${result.live_url}`
+          `Browser task started. You can watch it live in the widget above.\n\nTask: "${task}"\nModel: ${model ?? "browser-use-2.0"}\nTask ID: ${result.task_id}\nLive URL: ${result.live_url}`
         ),
       });
     } catch (err) {
