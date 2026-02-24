@@ -117,6 +117,37 @@ server.tool(
   }
 );
 
+// ── Custom HTTP endpoint — polled directly by the widget via fetch ───────────
+
+server.app.get("/api/task/:taskId", async (c) => {
+  const taskId = c.req.param("taskId");
+  try {
+    const res = await fetch("https://api.browser-use.com/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Browser-Use-API-Key": API_KEY,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        id: Date.now(),
+        params: { name: "monitor_task", arguments: { task_id: taskId } },
+      }),
+    });
+    const json = await res.json() as { result?: { content?: Array<{ text: string }> } };
+    const data = JSON.parse(json.result?.content?.[0]?.text ?? "{}");
+    return c.json({
+      done: data.is_success !== null && data.is_success !== undefined,
+      isSuccess: data.is_success ?? null,
+      taskOutput: data.task_output ?? null,
+      totalSteps: data.total_steps ?? 0,
+    });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+});
+
 server.listen().then(() => {
   console.log("Browser Use Live MCP server running");
 });

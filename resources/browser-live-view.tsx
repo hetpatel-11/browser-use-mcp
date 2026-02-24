@@ -1,4 +1,4 @@
-import { McpUseProvider, useWidget, useCallTool, type WidgetMetadata } from "mcp-use/react";
+import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 
@@ -29,24 +29,25 @@ type TaskResult = {
   done: boolean;
 };
 
+const SERVER_BASE = "https://sweet-king-00fsr.run.mcp-use.com";
+
 export default function BrowserLiveView() {
   const { props, isPending } = useWidget<Props>();
-  const { callToolAsync } = useCallTool("get_task_result");
   const [iframeError, setIframeError] = useState(false);
   const [result, setResult] = useState<TaskResult | null>(null);
 
+  // Poll the server directly via fetch — works independently of ChatGPT's session
   useEffect(() => {
     if (isPending) return;
     let stopped = false;
 
     const poll = async () => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const res = await (callToolAsync as any)({ task_id: props.taskId });
-        const data: TaskResult = res.structuredContent ?? JSON.parse(res.content?.[0]?.text ?? "{}");
+        const res = await fetch(`${SERVER_BASE}/api/task/${props.taskId}`);
+        const data: TaskResult = await res.json();
         setResult(data);
         if (data.done) stopped = true;
-      } catch { /* ignore */ }
+      } catch { /* ignore transient errors */ }
     };
 
     poll();
